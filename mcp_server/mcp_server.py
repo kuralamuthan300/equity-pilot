@@ -1,22 +1,14 @@
-import yfinance as yf
 from fastmcp import FastMCP
+from yscreener_tools import register_all_screener_mcp_tools
+from file_folder_management_tools import register_all_file_access_tools
 
-mcp = FastMCP("equity-pilot")
-class MCPserver():
-    def __init__(self):
-        pass
+if __name__ == "__main__":
+    # Initialize MCP
+    mcp = FastMCP('equity-pilot')
 
-    def search_company(self,company_name:str,max_results:int=10)->list:
-        search = yf.Search(company_name,max_results=max_results)
-        return search.quotes
+    # Register all screener tools defined in ALL_TOOLS
+    register_all_screener_mcp_tools(mcp)
+    register_all_file_access_tools(mcp)
     
-    def get_company_info(self,symbol:str)->dict:
-        return yf.Ticker(symbol).info
-    
-    def get_company_financials(self,symbol:str)->dict:
-        ticket_result = yf.Ticker(symbol)
-        ticket_balance_sheet = ticket_result.get_balance_sheet(as_dict=True, pretty=False, freq='yearly')
-        ticket_cashflow = ticket_result.get_cashflow(as_dict=True, pretty=False, freq='yearly')
-        ticket_income_statement = ticket_result.get_income_stmt(as_dict=True, pretty=False, freq='yearly')
-        return {"balance_sheet":ticket_balance_sheet,"cashflow":ticket_cashflow,"income_statement":ticket_income_statement}
-    
+    # Start the MCP server
+    mcp.run()
