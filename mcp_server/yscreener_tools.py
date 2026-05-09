@@ -1763,64 +1763,229 @@ def get_valid_fields_and_values() -> Dict[str, Any]:
 def search_company(company_name: str, max_results: int = 10) -> list:
     """
     Search Yahoo Finance for companies matching a name or keyword.
+    Use this FIRST when you know a company name but not its ticker symbol.
 
     Parameters
     ----------
     company_name : str
-        The company name or search keyword (e.g. "Apple", "Reliance").
+        The company name or search keyword (e.g. "Apple", "Reliance", "TCS").
     max_results : int
         Maximum number of results to return (default 10).
 
     Returns
     -------
     list
-        A list of matching quote dicts (symbol, shortName, exchange, etc.).
+        A list of matching quote dicts with keys: symbol, shortName, exchange,
+        quoteType, sector, industry. Use the 'symbol' field for further lookups.
+
+    MCP tool name : search_company
     """
-    search = yf.Search(company_name, max_results=max_results)
-    return search.quotes
+    try:
+        search = yf.Search(company_name, max_results=max_results)
+        quotes = search.quotes or []
+        # Ensure every item is a plain dict with only JSON-serializable values
+        result = []
+        for q in quotes:
+            if isinstance(q, dict):
+                result.append({k: v for k, v in q.items() if isinstance(v, (str, int, float, bool, type(None)))})
+        return result
+    except Exception as exc:
+        return [{"error": str(exc)}]
 
 
 def get_company_info(symbol: str) -> dict:
     """
     Fetch the full company profile / metadata for a given ticker symbol.
+    Returns sector, industry, market cap, description, P/E, revenue, employees, etc.
 
     Parameters
     ----------
     symbol : str
-        Ticker symbol (e.g. "AAPL", "RELIANCE.NS").
+        Ticker symbol (e.g. "AAPL", "RELIANCE.NS", "TCS.NS").
+        For Indian NSE stocks append ".NS", for BSE append ".BO".
 
     Returns
     -------
     dict
-        Company profile including sector, industry, market cap, description, etc.
+        Company profile including sector, industry, marketCap, trailingPE,
+        forwardPE, dividendYield, beta, 52-week range, and longBusinessSummary.
+
+    MCP tool name : get_company_info
     """
-    return yf.Ticker(symbol).info
+    try:
+        info = yf.Ticker(symbol).info
+        # info is already a plain dict; filter to JSON-safe scalar values only
+        safe = {}
+        for k, v in info.items():
+            if isinstance(v, (str, int, float, bool, type(None))):
+                safe[k] = v
+            elif isinstance(v, list) and all(isinstance(i, (str, int, float)) for i in v):
+                safe[k] = v
+        return safe
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def _serialize_financial_dict(raw: dict) -> dict:
+    """Convert a yfinance financial dict (which has Timestamp column keys)
+    into a fully JSON-serializable dict with ISO-date string keys."""
+    result = {}
+    for metric, date_values in raw.items():
+        if not isinstance(date_values, dict):
+            result[str(metric)] = date_values
+            continue
+        date_str_values = {}
+        for date_key, val in date_values.items():
+            # Timestamp / datetime -> ISO string
+            date_str = getattr(date_key, "isoformat", lambda: str(date_key))()
+            # NaN / Inf -> None for JSON safety
+            if isinstance(val, float) and (val != val or abs(val) == float("inf")):
+                val = None
+            date_str_values[date_str] = val
+        result[str(metric)] = date_str_values
+    return result
 
 
 def get_company_financials(symbol: str) -> dict:
     """
     Retrieve the latest annual financial statements for a ticker.
-
-    Fetches the balance sheet, cash-flow statement, and income statement
-    from Yahoo Finance and returns them in a single structured dict.
+    Returns balance sheet, cash-flow statement, and income statement.
 
     Parameters
     ----------
     symbol : str
-        Ticker symbol (e.g. "AAPL", "RELIANCE.NS").
+        Ticker symbol (e.g. "AAPL", "RELIANCE.NS", "TCS.NS").
+        For Indian NSE stocks append ".NS", for BSE append ".BO".
 
     Returns
     -------
     dict
-        Keys: "balance_sheet", "cashflow", "income_statement" — each
-        value is itself a dict keyed by metric name.
+        Keys: "balance_sheet", "cashflow", "income_statement".
+        Each is a dict of {metric_name: {"YYYY-MM-DD": value, ...}}.
+
+    MCP tool name : get_company_financials
     """
-    ticker = yf.Ticker(symbol)
-    return {
-        "balance_sheet":     ticker.get_balance_sheet(as_dict=True, pretty=False, freq="yearly"),
-        "cashflow":          ticker.get_cashflow(as_dict=True,      pretty=False, freq="yearly"),
-        "income_statement":  ticker.get_income_stmt(as_dict=True,   pretty=False, freq="yearly"),
-    }
+    try:
+        ticker = yf.Ticker(symbol)
+        return {
+            "balance_sheet":    _serialize_financial_dict(
+                ticker.get_balance_sheet(as_dict=True, pretty=False, freq="yearly") or {}
+            ),
+            "cashflow":         _serialize_financial_dict(
+                ticker.get_cashflow(as_dict=True, pretty=False, freq="yearly") or {}
+            ),
+            "income_statement": _serialize_financial_dict(
+                ticker.get_income_stmt(as_dict=True, pretty=False, freq="yearly") or {}
+            ),
+        }
+    except Exception as exc:
+        return {"error": str(exc), "traceback": traceback.format_exc()}
+
+
+def get_stock_price(symbol: str) -> dict:
+    """
+    Get the current/latest price snapshot for a ticker symbol.
+    Returns current price, day change %, volume, 52-week range, and key ratios.
+
+    Parameters
+    ----------
+    symbol : str
+        Ticker symbol (e.g. "AAPL", "RELIANCE.NS", "INFY.NS").
+        For Indian NSE stocks append ".NS", for BSE append ".BO".
+
+    Returns
+    -------
+    dict
+        Keys include: currentPrice, previousClose, dayChange, dayChangePct,
+        volume, marketCap, trailingPE, fiftyTwoWeekHigh, fiftyTwoWeekLow,
+        currency, shortName, symbol.
+
+    MCP tool name : get_stock_price
+    """
+    try:
+        info = yf.Ticker(symbol).fast_info
+        ticker_obj = yf.Ticker(symbol)
+        full_info = ticker_obj.info
+
+        current_price = getattr(info, "last_price", None) or full_info.get("currentPrice") or full_info.get("regularMarketPrice")
+        prev_close    = getattr(info, "previous_close", None) or full_info.get("previousClose")
+        day_change    = round(current_price - prev_close, 4) if current_price and prev_close else None
+        day_change_pct = round((day_change / prev_close) * 100, 2) if day_change and prev_close else None
+
+        return {
+            "symbol":           symbol,
+            "shortName":        full_info.get("shortName"),
+            "currency":         full_info.get("currency"),
+            "currentPrice":     current_price,
+            "previousClose":    prev_close,
+            "dayChange":        day_change,
+            "dayChangePct":     day_change_pct,
+            "volume":           getattr(info, "last_volume", None) or full_info.get("volume"),
+            "marketCap":        getattr(info, "market_cap", None) or full_info.get("marketCap"),
+            "fiftyTwoWeekHigh": getattr(info, "year_high", None) or full_info.get("fiftyTwoWeekHigh"),
+            "fiftyTwoWeekLow":  getattr(info, "year_low", None)  or full_info.get("fiftyTwoWeekLow"),
+            "trailingPE":       full_info.get("trailingPE"),
+            "forwardPE":        full_info.get("forwardPE"),
+            "sector":           full_info.get("sector"),
+            "industry":         full_info.get("industry"),
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
+
+
+def get_stock_history(
+    symbol: str,
+    period: str = "1mo",
+    interval: str = "1d",
+) -> dict:
+    """
+    Fetch OHLCV (Open, High, Low, Close, Volume) price history for a ticker.
+
+    Parameters
+    ----------
+    symbol : str
+        Ticker symbol (e.g. "AAPL", "RELIANCE.NS", "INFY.NS").
+        For Indian NSE stocks append ".NS", for BSE append ".BO".
+    period : str
+        How far back to fetch. Valid values:
+        "1d", "5d", "1mo", "3mo", "6mo", "1y", "2y", "5y", "10y", "ytd", "max".
+        Default "1mo".
+    interval : str
+        Bar interval. Valid values:
+        "1m","2m","5m","15m","30m","60m","90m","1h","1d","5d","1wk","1mo","3mo".
+        Default "1d" (daily bars).
+
+    Returns
+    -------
+    dict
+        Keys: "symbol", "period", "interval", "count", "data" (list of OHLCV dicts
+        each with keys: date, open, high, low, close, volume).
+
+    MCP tool name : get_stock_history
+    """
+    try:
+        hist = yf.Ticker(symbol).history(period=period, interval=interval)
+        if hist.empty:
+            return {"symbol": symbol, "period": period, "interval": interval, "count": 0, "data": []}
+        records = []
+        for idx, row in hist.iterrows():
+            records.append({
+                "date":   idx.isoformat() if hasattr(idx, "isoformat") else str(idx),
+                "open":   round(float(row["Open"]),  4) if row["Open"]  == row["Open"] else None,
+                "high":   round(float(row["High"]),  4) if row["High"]  == row["High"] else None,
+                "low":    round(float(row["Low"]),   4) if row["Low"]   == row["Low"]  else None,
+                "close":  round(float(row["Close"]), 4) if row["Close"] == row["Close"] else None,
+                "volume": int(row["Volume"]) if row["Volume"] == row["Volume"] else None,
+            })
+        return {
+            "symbol":   symbol,
+            "period":   period,
+            "interval": interval,
+            "count":    len(records),
+            "data":     records,
+        }
+    except Exception as exc:
+        return {"error": str(exc)}
 
 
 # ---------------------------------------------------------------------------
@@ -1889,6 +2054,8 @@ ALL_TOOLS: Dict[str, Any] = {
     "search_company": search_company,
     "get_company_info": get_company_info,
     "get_company_financials": get_company_financials,
+    "get_stock_price": get_stock_price,
+    "get_stock_history": get_stock_history,
 }
 
 

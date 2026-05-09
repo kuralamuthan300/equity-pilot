@@ -5,6 +5,15 @@ import os
 import json
 import re
 
+# ---------------------------------------------------------------------------
+# Path bootstrap — makes "python agent/agent.py" work in addition to
+# "python -m agent.agent".  Must come before any local imports.
+# ---------------------------------------------------------------------------
+_PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _PROJECT_ROOT not in sys.path:
+    sys.path.insert(0, _PROJECT_ROOT)
+# ---------------------------------------------------------------------------
+
 from mcp import ClientSession, StdioServerParameters
 from mcp.client.stdio import stdio_client
 
@@ -12,17 +21,40 @@ from config.config import API_KEY
 from config.config import system_prompt as cf_system_prompt
 
 # Path to the MCP server script (relative to project root)
-MCP_SERVER_SCRIPT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mcp_server", "mcp_server.py")
-MCP_SERVER_CWD    = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "mcp_server")
+MCP_SERVER_SCRIPT = os.path.join(_PROJECT_ROOT, "mcp_server", "mcp_server.py")
+MCP_SERVER_CWD    = os.path.join(_PROJECT_ROOT, "mcp_server")
 
 
 def _describe_tools(tools) -> str:
-    """Format MCP tool list into a human-readable string for the system prompt."""
+    """Format MCP tool list into a rich human-readable string for the system prompt.
+
+    For each tool shows:
+    - Name and full docstring description
+    - Each parameter with its type, whether required, and its default if optional
+    """
     lines = []
     for t in tools:
-        props = (t.inputSchema or {}).get("properties", {})
-        params = ", ".join(f"{n}: {p.get('type', 'any')}" for n, p in props.items()) or "no params"
-        lines.append(f"- {t.name}({params}): {t.description or 'No description'}")
+        schema = t.inputSchema or {}
+        props = schema.get("properties", {})
+        required_set = set(schema.get("required", []))
+
+        param_parts = []
+        for name, prop in props.items():
+            ptype = prop.get("type", "any")
+            # Handle anyOf / nullable types (e.g. Optional[float])
+            if "anyOf" in prop:
+                types = [x.get("type", "any") for x in prop["anyOf"] if x.get("type") != "null"]
+                ptype = types[0] if types else "any"
+            is_required = name in required_set
+            default = prop.get("default")
+            if is_required:
+                param_parts.append(f"{name}: {ptype} [REQUIRED]")
+            else:
+                param_parts.append(f"{name}: {ptype} = {json.dumps(default)}")
+
+        params_str = "(" + ", ".join(param_parts) + ")" if param_parts else "()"
+        description = (t.description or "No description").strip()
+        lines.append(f"- {t.name}{params_str}\n    {description}")
     return "\n".join(lines)
 
 
@@ -97,10 +129,17 @@ To call a tool, respond with JSON in this exact format:
 When you have enough information and are ready to answer the user:
 {{"action": "final_answer", "response": "<your complete response>", "conversation_summary": "<updated summary>"}}
 
-Rules:
-- Only call tools that are listed above.
-- You will receive the tool result and can then call another tool or give a final_answer.
-- Always end with a "final_answer" action.
+### Tool Usage Rules:
+1. Only call tools that are listed above with their exact names.
+2. Only include args that are in the tool's parameter list — never invent fields.
+3. REQUIRED parameters must always be provided. Optional parameters have defaults shown.
+4. For Indian stocks always use region "in", exchanges "NSI" (NSE) or "BSE". Use India-specific tools (screen_india_*) for best results.
+5. For US stocks use region "us", exchanges "NMS" or "NYQ" for NASDAQ/NYSE.
+6. Valid sectors: Basic Materials, Communication Services, Consumer Cyclical, Consumer Defensive, Energy, Financial Services, Healthcare, Industrials, Real Estate, Technology, Utilities.
+7. Market caps are always in USD — for Indian large caps use min 2_400_000_000, mid caps 600_000_000–2_400_000_000, small caps 120_000_000–600_000_000.
+8. When a user mentions a company by name, call search_company first to find its ticker, then get_company_info to find its sector/industry before screening peers.
+9. You will receive the tool result and can then call another tool or give a final_answer.
+10. Always end with a "final_answer" action.
 """
         return cf_system_prompt + tools_section
 
