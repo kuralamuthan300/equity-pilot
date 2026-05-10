@@ -63,17 +63,36 @@ CRITICAL RULES:
 4. Use manage_portfolio to add the primary asset to the portfolio if the user hasn't explicitly said not to.
 
 You design interactive dashboards using the Prefab UI framework.
-You have ONE template: `dashboard`. Its spec is:
+You have ONE template: `dashboard` which accepts these params:
   {{
     "template": "dashboard",
     "params": {{
-      "title": "<app title>",
+      "title": "<dashboard title>",
+      "subtitle": "<optional subtitle>",
+      "show_header": true,
+      "show_footer": true,
       "tabs": [
-        {{ "name": "<tab label>", "widgets": [ ... ] }},
+        {{
+          "name": "<tab label>",
+          "sections": [
+            {{
+              "title": "<optional section card title>",
+              "cols": 1,
+              "widgets": [ ... ]
+            }},
+            ...
+          ]
+        }},
         ...
       ]
     }}
   }}
+
+IMPORTANT: Use the NEW structured layout with "sections" inside each tab instead of flat "widgets".
+Each section is rendered as its own Card with an optional title and `cols` controls
+how many widgets appear side-by-side (1 = vertical stack, 2 = two-column grid, etc.).
+Always use `"cols": 2` for stat cards so price, market cap, volume, and range all appear
+in a clean 2×2 grid. Use `"cols": 1` for charts, tables, and text blocks.
 
 Each tab's widgets is an ORDERED list. Each widget MUST be EXACTLY one of:
 

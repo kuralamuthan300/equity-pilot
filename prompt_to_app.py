@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 
 from dotenv import load_dotenv
 
@@ -18,6 +19,23 @@ def _slug(s: str, default: str = "k") -> str:
 
 def _safe(name: str, idx: int, default: str = "item") -> str:
     return _slug(name, default) or f"{default}_{idx}"
+
+
+def _fmt_currency(value) -> str:
+    """Format a number as a compact currency string (e.g. $1.2T, $340B, $52M)."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return str(value)
+    if v >= 1_000_000_000_000:
+        return f"${v / 1_000_000_000_000:.2f}T"
+    if v >= 1_000_000_000:
+        return f"${v / 1_000_000_000:.2f}B"
+    if v >= 1_000_000:
+        return f"${v / 1_000_000:.1f}M"
+    if v >= 1_000:
+        return f"${v:,.2f}"
+    return f"${v:.4f}" if v < 1 else f"${v:,.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -46,7 +64,7 @@ def widget_lines(w: dict, ctx: dict) -> list[str]:
         return out
 
     # ------------------------------------------------------------------
-    # alert_stat — stat with a coloured accent badge (new widget)
+    # alert_stat — stat with a coloured accent badge
     # ------------------------------------------------------------------
     if kind == "alert_stat":
         label   = w.get("label", "")
@@ -137,7 +155,7 @@ def widget_lines(w: dict, ctx: dict) -> list[str]:
         return out
 
     # ------------------------------------------------------------------
-    # score_ring — ring with an extra descriptive badge below (new widget)
+    # score_ring — ring with an extra descriptive badge below
     # ------------------------------------------------------------------
     if kind == "score_ring":
         label       = w.get("label", "")
@@ -259,7 +277,7 @@ def widget_lines(w: dict, ctx: dict) -> list[str]:
         return out
 
     # ------------------------------------------------------------------
-    # kv_list — key-value pairs rendered as a compact list (new widget)
+    # kv_list — key-value pairs rendered as a compact list
     # ------------------------------------------------------------------
     if kind == "kv_list":
         title = w.get("title", "")
@@ -306,11 +324,72 @@ def widget_lines(w: dict, ctx: dict) -> list[str]:
 
 
 # ---------------------------------------------------------------------------
+# Section renderer — wraps widgets in a Card with optional title
+# ---------------------------------------------------------------------------
+
+def render_section(section: dict, ctx: dict, tab_index: int) -> list[str]:
+    """Render a section (a Card containing widgets)."""
+    sect_title = section.get("title", "")
+    sect_cols  = section.get("cols", 1)
+    widgets    = section.get("widgets", [])
+
+    lines: list[str] = []
+    lines.append("with Card():")
+    if sect_title:
+        lines.append("    with CardHeader():")
+        lines.append(f"        CardTitle({sect_title!r})")
+    lines.append("    with CardContent():")
+
+    content_indent = "    " * 2  # inside CardContent
+
+    if not widgets:
+        lines.append(f"{content_indent}Muted(\"(empty section)\")")
+    else:
+            # Determine layout: for cols > 1, wrap widgets in Row(gap=4) groups
+            if sect_cols > 1:
+                # Group widgets into rows of `sect_cols`
+                for i in range(0, len(widgets), sect_cols):
+                    chunk = widgets[i:i + sect_cols]
+                    lines.append(f"{content_indent}with Row(gap=4):")
+                    for w in chunk:
+                        w_lines = widget_lines(w, ctx)
+                        # Indent each widget line further inside Row > Column
+                        lines.append(f"{content_indent}    with Column(gap=2):")
+                        for wl in w_lines:
+                            stripped = wl.rstrip()
+                            if stripped:
+                                # Preserve original leading whitespace for relative indentation
+                                lines.append(f"{content_indent}        {stripped}")
+            else:
+                # Single column — stack widgets vertically
+                for w in widgets:
+                    w_lines = widget_lines(w, ctx)
+                    for wl in w_lines:
+                        stripped = wl.rstrip()
+                        if stripped:
+                            # Preserve original leading whitespace for relative indentation
+                            lines.append(f"{content_indent}{stripped}")
+
+    return lines
+
+
+# ---------------------------------------------------------------------------
 # The one template — generates a complete Prefab app source file
 # ---------------------------------------------------------------------------
 
-def dashboard(title: str, tabs: list[dict]) -> str:
-    """Render a multi-tab Prefab dashboard from a spec dict."""
+def dashboard(
+    title: str,
+    tabs: list[dict],
+    subtitle: str = "",
+    show_header: bool = True,
+    show_footer: bool = True,
+) -> str:
+    """Render a rich multi-tab Prefab dashboard from a spec dict.
+
+    Each tab can have either:
+      - ``widgets`` (flat list, backward-compatible)
+      - ``sections`` (list of dicts with title, cols, widgets)
+    """
     if not tabs:
         tabs = [{"name": "Main", "widgets": [{"kind": "text", "heading": "Empty dashboard"}]}]
 
@@ -318,24 +397,34 @@ def dashboard(title: str, tabs: list[dict]) -> str:
     TAB_INDENT = " " * 24   # body of `with Column(gap=5):` at 24 spaces
 
     built_tabs: list[tuple[str, str, str]] = []   # (name, value, indented_body)
-    for i, tab in enumerate(tabs):
-        name    = str(tab.get("name") or f"Tab {i+1}")
-        value   = _slug(tab.get("value") or name, f"tab_{i+1}")
-        widgets = tab.get("widgets") or []
+    for ti, tab in enumerate(tabs):
+        name    = str(tab.get("name") or f"Tab {ti+1}")
+        value   = _slug(tab.get("value") or name, f"tab_{ti+1}")
 
         body_lines: list[str] = []
-        if not widgets:
-            body_lines = [TAB_INDENT + 'Muted("(empty tab)")']
+
+        # Support both flat widgets list and structured sections
+        sections = tab.get("sections")
+        if sections:
+            for sect in sections:
+                for line in render_section(sect, ctx, ti):
+                    body_lines.append((TAB_INDENT + line) if line.strip() else "")
         else:
-            for w in widgets:
-                for line in widget_lines(w, ctx):
-                    body_lines.append((TAB_INDENT + line) if line else "")
+            # Fallback: flat widgets list rendered as a single section
+            flat_widgets = tab.get("widgets") or []
+            if not flat_widgets:
+                body_lines = [TAB_INDENT + 'Muted("(empty tab)")']
+            else:
+                for w in flat_widgets:
+                    for line in widget_lines(w, ctx):
+                        body_lines.append((TAB_INDENT + line) if line.strip() else "")
 
         built_tabs.append((name, value, "\n".join(body_lines)))
 
     first_value = built_tabs[0][1]
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S UTC")
 
-    parts = [
+    parts: list[str] = [
         "from prefab_ui.app import PrefabApp",
         "from prefab_ui.components import (",
         "    Badge, Button, Card, CardContent, CardHeader, CardTitle,",
@@ -347,16 +436,46 @@ def dashboard(title: str, tabs: list[dict]) -> str:
         ")",
         "",
         'with PrefabApp(css_class="max-w-6xl mx-auto p-8 bg-slate-950") as app:',
-        "    with Card():",
-        "        with CardHeader():",
-        f"            CardTitle({title!r})",
-        "        with CardContent():",
-        f"            with Tabs(value={first_value!r}):",
     ]
+
+    # ------------------------------------------------------------------
+    # Dashboard header
+    # ------------------------------------------------------------------
+    if show_header:
+        parts.append("    with Card():")
+        parts.append("        with CardHeader():")
+        parts.append(f"            CardTitle({title!r})")
+        parts.append("        with CardContent():")
+        parts.append("            with Column(gap=2):")
+        if subtitle:
+            parts.append(f"                H2({subtitle!r})")
+        parts.append(f'                Muted("Generated: {generated_at}")')
+        parts.append("")
+
+    # ------------------------------------------------------------------
+    # Tab bar
+    # ------------------------------------------------------------------
+    parts.append("    with Card():")
+    parts.append("        with CardContent():")
+    parts.append(f"            with Tabs(value={first_value!r}):")
 
     for name, value, body in built_tabs:
         parts.append(f"                with Tab({name!r}, value={value!r}):")
         parts.append("                    with Column(gap=5):")
-        parts.append(body)
+        if body.strip():
+            parts.append(body)
+        else:
+            parts.append("                        Muted(\"(empty tab)\")")
+
+    # ------------------------------------------------------------------
+    # Dashboard footer
+    # ------------------------------------------------------------------
+    if show_footer:
+        parts.append("")
+        parts.append("    with Card():")
+        parts.append("        with CardContent():")
+        parts.append("            with Column(gap=2):")
+        parts.append('                Muted("CryptoScope · Powered by Gemini & MCP")')
+        parts.append(f'                Muted("Dashboard generated at: {generated_at}")')
 
     return "\n".join(parts) + "\n"

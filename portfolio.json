@@ -1,10 +1,10 @@
 [
     {
-        "ticker": "ETH",
-        "name": "Grayscale Ethereum Staking Mini",
-        "entry_price": 21.99,
+        "ticker": "BTC",
+        "name": "Grayscale Bitcoin Mini Trust (B",
+        "entry_price": 35.47,
         "quantity": 0.0,
         "note": "",
-        "added_at": "2026-05-10T20:51:22.203631"
+        "added_at": "2026-05-10T22:02:50.942549"
     }
 ]
