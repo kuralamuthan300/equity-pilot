@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -383,12 +384,16 @@ def dashboard(
     subtitle: str = "",
     show_header: bool = True,
     show_footer: bool = True,
+    **kwargs: Any,
 ) -> str:
     """Render a rich multi-tab Prefab dashboard from a spec dict.
 
     Each tab can have either:
       - ``widgets`` (flat list, backward-compatible)
       - ``sections`` (list of dicts with title, cols, widgets)
+
+    Extra keyword arguments (``**kwargs``) are silently ignored for
+    forward-compatibility with LLM-generated specs.
     """
     if not tabs:
         tabs = [{"name": "Main", "widgets": [{"kind": "text", "heading": "Empty dashboard"}]}]

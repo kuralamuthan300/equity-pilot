@@ -6,5 +6,13 @@
         "quantity": 0.0,
         "note": "",
         "added_at": "2026-05-10T22:02:50.942549"
+    },
+    {
+        "ticker": "BTC-USD",
+        "name": "Bitcoin USD",
+        "entry_price": 81284.02,
+        "quantity": 1.0,
+        "note": "Initial analysis and tracking.",
+        "added_at": "2026-05-10T22:13:09.153388"
     }
 ]

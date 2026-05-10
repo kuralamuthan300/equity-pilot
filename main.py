@@ -27,7 +27,7 @@ load_dotenv()
 MAX_ITERATIONS = 8
 LLM_SLEEP_SECONDS = 5
 LLM_TIMEOUT = 45
-MODEL = "gemini-3.1-flash-lite"
+MODEL = "gemini-3-flash-preview"
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
 sys.path.append(str(Path(__file__).resolve().parents[1]))
@@ -346,63 +346,155 @@ async def main():
 
             console.print(Rule(style="bright_blue"))
 
+            # ----------------------------------------------------------------
+            # Extract JSON spec robustly — try multiple strategies
+            # ----------------------------------------------------------------
+            def extract_json(text: str) -> str | None:
+                """Try multiple strategies to extract a JSON object from LLM text."""
+                if not text or not text.strip():
+                    return None
+
+                text = text.strip()
+
+                # Strategy 1: code fences (```json ... ``` or ``` ... ```)
+                match = re.search(r"```(?:json)?\s*\n?(.*?)```", text, re.DOTALL)
+                if match:
+                    candidate = match.group(1).strip()
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except json.JSONDecodeError:
+                        pass
+
+                # Strategy 2: raw JSON object — find outermost { ... }
+                start = text.find("{")
+                end = text.rfind("}")
+                if start != -1 and end != -1 and end > start:
+                    candidate = text[start : end + 1]
+                    try:
+                        json.loads(candidate)
+                        return candidate
+                    except json.JSONDecodeError:
+                        pass
+
+                # Strategy 3: try parsing the entire text as-is
+                try:
+                    json.loads(text)
+                    return text
+                except json.JSONDecodeError:
+                    pass
+
+                # Strategy 4: walk through looking for valid JSON objects
+                for i in range(len(text)):
+                    if text[i] == "{":
+                        depth = 0
+                        for j in range(i, len(text)):
+                            if text[j] == "{":
+                                depth += 1
+                            elif text[j] == "}":
+                                depth -= 1
+                                if depth == 0:
+                                    candidate = text[i : j + 1]
+                                    try:
+                                        json.loads(candidate)
+                                        return candidate
+                                    except json.JSONDecodeError:
+                                        break
+                return None
+
             final_text = (response.text or "").strip()
+
+            # Log the raw response for debugging
             console.print(Panel(
                 final_text[:2000] + ("…" if len(final_text) > 2000 else ""),
                 title="[bright_cyan]Agent Final Response[/bright_cyan]",
                 border_style="bright_blue",
             ))
 
-            # ----------------------------------------------------------------
-            # Extract JSON spec robustly
-            # ----------------------------------------------------------------
-            match = re.search(r"```(?:json)?\n(.*?)\n```", final_text, re.DOTALL)
-            if match:
-                final_text = match.group(1).strip()
-            else:
-                final_text = final_text.strip()
-                if not final_text.startswith("{"):
-                    start_idx = final_text.find("{")
-                    end_idx = final_text.rfind("}")
-                    if start_idx != -1 and end_idx != -1:
-                        final_text = final_text[start_idx : end_idx + 1]
+            json_str = extract_json(final_text)
 
-            try:
-                spec = json.loads(final_text)
-                write_app(spec)
+            if json_str is None:
                 console.print(
-                    "\n[bold green]✅  generated_app.py written successfully![/bold green]"
+                    "\n[bold red]❌  Could not extract a valid JSON spec "
+                    "from the LLM response.[/bold red]"
                 )
+                console.print(
+                    "[dim]The LLM response is shown above. "
+                    "It should contain a JSON object like: "
+                    '{"template": "dashboard", "params": {...}}[/dim]'
+                )
+                return
 
-                console.print("\n[bold bright_blue]🚀  Launching Prefab dashboard…[/bold bright_blue]")
-                try:
-                    process = subprocess.Popen(
-                        ["prefab", "serve", "generated_app.py"],
-                        stdout=sys.stdout,
-                        stderr=subprocess.STDOUT,
-                    )
-                    console.print(
-                        f"[green]Prefab server started (PID {process.pid}). "
-                        f"Dashboard opening in your browser.[/green]"
-                    )
-                    console.print("[dim]Press Ctrl+C to stop.[/dim]")
-                    process.wait()
-                except FileNotFoundError:
-                    console.print(
-                        "\n[bold red]❌  'prefab' command not found. "
-                        "Install Prefab UI and ensure it is in your PATH.[/bold red]"
-                    )
-                except KeyboardInterrupt:
-                    console.print("\n[yellow]Stopping Prefab server…[/yellow]")
-                    process.terminate()
-                except Exception as e:
-                    console.print(f"\n[bold red]❌  Failed to start prefab server: {e}[/bold red]")
-
+            # Parse JSON first — separate from write_app error handling
+            try:
+                spec = json.loads(json_str)
             except json.JSONDecodeError as e:
                 console.print(
                     f"\n[bold red]❌  Failed to parse JSON spec: {e}[/bold red]"
                 )
-                console.print("[dim]Raw response saved above for debugging.[/dim]")
+                console.print("[dim]Raw text attempted (first 200 chars): "
+                              f"{json_str[:200]!r}[/dim]")
+                return
+
+            # Validate that spec has the expected structure
+            if "template" not in spec:
+                console.print(
+                    "\n[bold red]❌  JSON spec is missing 'template' key.[/bold red]"
+                )
+                console.print(f"[dim]Received keys: {list(spec.keys())}[/dim]")
+                return
+            if "params" not in spec:
+                console.print(
+                    "\n[bold red]❌  JSON spec is missing 'params' key.[/bold red]"
+                )
+                return
+
+            # Generate the dashboard — catch both ValueErrors from write_app
+            # and TypeError from passing wrong kwargs to dashboard()
+            try:
+                write_app(spec)
+            except (ValueError, TypeError) as e:
+                console.print(
+                    f"\n[bold red]❌  Failed to generate dashboard: {e}[/bold red]"
+                )
+                console.print(
+                    "[dim]The JSON spec was valid, but the dashboard template "
+                    "rejected the parameters. Check the spec above.[/dim]"
+                )
+                return
+            except Exception as e:
+                console.print(
+                    f"\n[bold red]❌  Unexpected error generating dashboard: {e}[/bold red]"
+                )
+                return
+
+            console.print(
+                "\n[bold green]✅  generated_app.py written successfully![/bold green]"
+            )
+
+            console.print("\n[bold bright_blue]🚀  Launching Prefab dashboard…[/bold bright_blue]")
+            try:
+                process = subprocess.Popen(
+                    ["prefab", "serve", "generated_app.py"],
+                    stdout=sys.stdout,
+                    stderr=subprocess.STDOUT,
+                )
+                console.print(
+                    f"[green]Prefab server started (PID {process.pid}). "
+                    f"Dashboard opening in your browser.[/green]"
+                )
+                console.print("[dim]Press Ctrl+C to stop.[/dim]")
+                process.wait()
+            except FileNotFoundError:
+                console.print(
+                    "\n[bold red]❌  'prefab' command not found. "
+                    "Install Prefab UI and ensure it is in your PATH.[/bold red]"
+                )
+            except KeyboardInterrupt:
+                console.print("\n[yellow]Stopping Prefab server…[/yellow]")
+                process.terminate()
+            except Exception as e:
+                console.print(f"\n[bold red]❌  Failed to start prefab server: {e}[/bold red]")
 
 
 if __name__ == "__main__":
