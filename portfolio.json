@@ -3,9 +3,10 @@
         "ticker": "BTC",
         "name": "Grayscale Bitcoin Mini Trust (B",
         "entry_price": 35.47,
-        "quantity": 0.0,
-        "note": "",
-        "added_at": "2026-05-10T22:02:50.942549"
+        "quantity": 1.0,
+        "note": "Primary asset for comparison",
+        "added_at": "2026-05-10T22:02:50.942549",
+        "updated_at": "2026-05-10T22:29:41.179930"
     },
     {
         "ticker": "BTC-USD",
@@ -14,5 +15,21 @@
         "quantity": 1.0,
         "note": "Initial analysis and tracking.",
         "added_at": "2026-05-10T22:13:09.153388"
+    },
+    {
+        "ticker": "ETH-USD",
+        "name": "Ethereum USD",
+        "entry_price": 2349.79,
+        "quantity": 10.0,
+        "note": "Secondary asset for comparison",
+        "added_at": "2026-05-10T22:30:05.781101"
+    },
+    {
+        "ticker": "ETH",
+        "name": "Grayscale Ethereum Staking Mini",
+        "entry_price": 21.99,
+        "quantity": 1.0,
+        "note": "Added via dashboard request",
+        "added_at": "2026-05-10T22:33:17.656394"
     }
 ]
