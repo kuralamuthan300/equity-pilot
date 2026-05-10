@@ -434,7 +434,8 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "fastapi" },
-    { name = "fastmcp" },
+    { name = "fastmcp", extra = ["apps"] },
+    { name = "httpx" },
     { name = "mcp" },
     { name = "ollama" },
     { name = "prefab-ui" },
@@ -445,10 +446,11 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.136.1" },
-    { name = "fastmcp", specifier = ">=3.2.4" },
+    { name = "fastmcp", extras = ["apps"], specifier = ">=3.1.0" },
+    { name = "httpx", specifier = ">=0.27.0" },
     { name = "mcp", specifier = ">=1.27.0" },
-    { name = "ollama", specifier = ">=0.6.2" },
-    { name = "prefab-ui", specifier = ">=0.19.1" },
+    { name = "ollama", specifier = ">=0.3.0" },
+    { name = "prefab-ui", specifier = ">=0.19.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "yfinance", specifier = ">=1.3.0" },
 ]
@@ -512,6 +514,11 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/9c/13/29544fbc6dfe45ea38046af0067311e0bad7acc7d1f2ad38bb08f2409fe2/fastmcp-3.2.4.tar.gz", hash = "sha256:083ecb75b44a4169e7fc0f632f94b781bdb0ff877c6b35b9877cbb566fd4d4d1", size = 28746127, upload-time = "2026-04-14T01:42:24.174Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cf/76/b310d52fa0e30d39bd937eb58ec2c1f1ea1b5f519f0575e9dd9612f01deb/fastmcp-3.2.4-py3-none-any.whl", hash = "sha256:e6c9c429171041455e47ab94bb3f83c4657622a0ec28922f6940053959bd58a9", size = 728599, upload-time = "2026-04-14T01:42:26.85Z" },
+]
+
+[package.optional-dependencies]
+apps = [
+    { name = "prefab-ui" },
 ]
 
 [[package]]
