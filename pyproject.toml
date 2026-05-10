@@ -1,0 +1,14 @@
+[project]
+name = "cryptoscope"
+version = "0.1.0"
+description = "Agentic crypto and equity intelligence terminal powered by Gemini and MCP"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "google-genai>=1.74.0",
+    "mcp[cli]>=1.27.0",
+    "prefab-ui>=0.19.1",
+    "python-dotenv>=1.0.0",
+    "rich>=15.0.0",
+    "yfinance>=1.3.0",
+]
