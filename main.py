@@ -344,6 +344,65 @@ async def main():
                     f"[bold yellow]⚠  Reached max iterations ({MAX_ITERATIONS}). Stopping.[/bold yellow]"
                 )
 
+            # ----------------------------------------------------------------
+            # Final re-prompt: ask the LLM to produce ONLY the JSON spec
+            # (no more function calls). This is needed because some models
+            # return None text after the last tool result, or keep trying to
+            # call functions.
+            # ----------------------------------------------------------------
+            console.print(
+                "[bold bright_blue]📋  Generating final dashboard spec…[/bold bright_blue]\n"
+            )
+            FINAL_PROMPT = (
+                "Based on ALL the data you have gathered above, "
+                "produce the FINAL dashboard specification as a single JSON object. "
+                "Do NOT call any functions. "
+                "Output ONLY valid JSON matching this exact schema — "
+                "no markdown fences, no explanations, just raw JSON:\n"
+                '{"template": "dashboard", "params": {"title": "...", "tabs": [...]}}\n'
+            )
+
+            # Retry the final prompt up to 3 times if the model still wants
+            # to call functions instead of producing text.
+            final_retries = 3
+            for attempt in range(final_retries):
+                try:
+                    with console.status("[bold yellow]Assembling dashboard spec…[/bold yellow]"):
+                        response = await generate_with_timeout(chat, FINAL_PROMPT)
+                except asyncio.TimeoutError:
+                    console.print(
+                        f"[bold red]Error: LLM timed out after {LLM_TIMEOUT}s.[/bold red]"
+                    )
+                    return
+
+                # If the model produced text, we're done
+                if response.text and response.text.strip():
+                    break
+
+                # If the model still wants to call functions, tell it to stop
+                # and try again with a stricter prompt
+                if response.function_calls:
+                    console.print(
+                        f"  [yellow]⚠  Model tried to call functions again "
+                        f"(attempt {attempt + 1}/{final_retries}). "
+                        f"Re-prompting for JSON only…[/yellow]"
+                    )
+                    # Feed back an empty tool result to satisfy function call
+                    for fc in response.function_calls:
+                        response = await generate_with_timeout(
+                            chat,
+                            types.Part.from_function_response(
+                                name=fc.name,
+                                response={
+                                    "result": "IGNORED — produce JSON only, no tool calls"
+                                },
+                            ),
+                        )
+                    continue
+
+                # If text is empty and no function calls, break
+                break
+
             console.print(Rule(style="bright_blue"))
 
             # ----------------------------------------------------------------

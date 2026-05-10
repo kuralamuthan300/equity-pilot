@@ -440,7 +440,7 @@ def dashboard(
         "    BarChart, ChartSeries, LineChart, PieChart, Sparkline,",
         ")",
         "",
-        'with PrefabApp(css_class="max-w-6xl mx-auto p-8 bg-slate-950") as app:',
+        'with PrefabApp(css_class="max-w-7xl mx-auto p-6 bg-gray-50 min-h-screen") as app:',
     ]
 
     # ------------------------------------------------------------------
@@ -451,22 +451,22 @@ def dashboard(
         parts.append("        with CardHeader():")
         parts.append(f"            CardTitle({title!r})")
         parts.append("        with CardContent():")
-        parts.append("            with Column(gap=2):")
+        parts.append("            with Column(gap=3):")
         if subtitle:
             parts.append(f"                H2({subtitle!r})")
-        parts.append(f'                Muted("Generated: {generated_at}")')
+        parts.append(f'                Text("Generated: {generated_at}")')
         parts.append("")
 
     # ------------------------------------------------------------------
     # Tab bar
     # ------------------------------------------------------------------
-    parts.append("    with Card():")
+    parts.append("    with Card(style={'padding': '8px'}):")
     parts.append("        with CardContent():")
     parts.append(f"            with Tabs(value={first_value!r}):")
 
     for name, value, body in built_tabs:
         parts.append(f"                with Tab({name!r}, value={value!r}):")
-        parts.append("                    with Column(gap=5):")
+        parts.append("                    with Column(gap=6):")
         if body.strip():
             parts.append(body)
         else:
@@ -481,6 +481,6 @@ def dashboard(
         parts.append("        with CardContent():")
         parts.append("            with Column(gap=2):")
         parts.append('                Muted("CryptoScope · Powered by Gemini & MCP")')
-        parts.append(f'                Muted("Dashboard generated at: {generated_at}")')
+        parts.append(f'                Text("Dashboard generated at: {generated_at}")')
 
     return "\n".join(parts) + "\n"
